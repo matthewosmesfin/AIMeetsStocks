@@ -8,7 +8,6 @@ import tensorflow as tf
 from sklearn.model_selection import GridSearchCV
 from scikeras.wrappers import KerasClassifier
 import keras_tuner
-import streamlit as st
 
 #Stock prices in seperate folder
 
@@ -26,8 +25,8 @@ class StockPredictor():
         self.StockName = StockName
         self.TrainPercent = 0.8
         self.ValidationPercent = 0.2
-        self.TrainData = None
-        self.TestData = None
+        self.TrainData = pd.DataFrame()
+        self.TestData = pd.DataFrame()
         self.X_train = None
         self.y_train = None
         self.TimeStep = 60
@@ -44,10 +43,11 @@ class StockPredictor():
         self.Retune = False
         self.InputLayer = None
 
-    def preprocess_google(self):
-        print("preprocessing")
-        self.TrainData["Close"]=pd.to_numeric(self.TrainData.Close,errors='coerce')
-        self.TrainData = self.TrainData.dropna()
+    def preprocess_google(self, data):
+
+        data["Close"]=pd.to_numeric(data.Close,errors='coerce')
+        data = data.dropna()
+        return data
 
     functions = {
         'Google': preprocess_google,
@@ -61,33 +61,39 @@ class StockPredictor():
         # # if that is the case, train = 80%, test = 20%
 
         #return training set, testing set, and scaler
-
+        lengthOfFile = 0
+        trainingData = None
         try:
-            trainingData = pd.read_csv(FileNameTrain)    
-        except:
-            print("File not found or not csv file")
+            self.TrainData = pd.read_csv(FileNameTrain)
+            lengthOfFile = len(self.TrainData)
+        except FileNotFoundError:
+            raise FileNotFoundError("Training file not found or not a valid CSV file.")
+        except Exception as e:
+            raise ValueError(f"Error reading training file: {e}")
+
        
         if FileNameTest is None:
-            splitValue = int(len(trainingData) * self.TrainPercent)
-            trainingData, testingData = trainingData.iloc[:splitValue], trainingData.iloc[splitValue:]
+            splitValue = int(lengthOfFile * self.TrainPercent)
+            self.TrainData, self.TestData = self.TrainData.iloc[:splitValue], self.TrainData.iloc[splitValue:]
             # print("Training Data")
             # print(trainingData)
             # print("Testing Data")
             # print(testingData)
         else:
             try:
-                testingData = pd.read_csv(FileNameTest)    
-            except:
-                print("File not found or not csv file")
-        self.TrainData = trainingData
-        self.TestData = testingData
+                self.TestData = pd.read_csv(FileNameTest)    
+            except FileNotFoundError:
+                raise FileNotFoundError("Testing file not found or not a valid CSV file.")
+            except Exception as e:
+                raise ValueError(f"Error reading training file: {e}")
+
         try:
-            print("attempt")
             preprocess_function = self.functions[self.StockName]
         except:
             print("no preprocessor ")
         else:
-            preprocess_function(self)
+            self.TrainData = preprocess_function(self, self.TrainData)
+            self.TestData = preprocess_function(self, self.TestData)
 
         #setting timestep:
 
@@ -120,6 +126,8 @@ class StockPredictor():
         # print(y_train.shape)
 
         X_train = np.reshape(X_train,(X_train.shape[0],X_train.shape[1],numCol))
+
+        self.InputLayer = X_train.shape
        
         # self.X_train = X_train
         # self.Y_train = y_train
@@ -130,7 +138,7 @@ class StockPredictor():
         model = Sequential()
         # Tune the number of LSTM units
         units = hp.Int('units', min_value=50, max_value=300, step=50)
-        model.add(LSTM(units, input_shape= self.InputLayer, return_sequences=False))
+        model.add(LSTM(units, input_shape=(self.InputLayer[1], self.InputLayer[2]), return_sequences=False))
         batch_sizes = hp.Choice('batch_size', [16, 32, 64, 128, 264])
         # Tune the dropout rate
         dropout_rate = hp.Float('dropout_rate', min_value=0.1, max_value=0.6, step=0.1)
@@ -139,11 +147,11 @@ class StockPredictor():
         model.compile(
             optimizer='adam', #should we tune this as well?
             loss='mean_squared_error', #how do we decide between them?
-            metrics=['accuracy']
+            metrics=['mean_absolute_error']
         )
         return model
 
-    def hyperParameterTuning(self, X_train, y_train, features, numTrials = 20, executionPerTrial = 1, trainEpochs = 10):
+    def hyperParameterTuning(self, X_train, y_train, features, numTrials = 50, executionPerTrial = 1, trainEpochs = 10):
         #use train set to tune hyperparameters
 
         #split some of train set as validation set
@@ -156,16 +164,15 @@ class StockPredictor():
         X_train, X_val = X_train[:train_size], X_train[train_size:]
         y_train, y_val = y_train[:train_size], y_train[train_size:]
 
-        print(X_val.shape)
-        print(y_val.shape)
-        self.InputLayer = X_train.shape()
+        # print(X_val.shape)
+        # print(y_val.shape)
 
         X_train = np.reshape(X_train,(X_train.shape[0],X_train.shape[1], features)) #edit later probably
 
 
         tuner = keras_tuner.RandomSearch(
             self.build_model,
-            objective='val_accuracy',
+            objective='val_mean_absolute_error',
             max_trials=numTrials,  # Number of different hyperparameter combinations to try
             executions_per_trial=executionPerTrial,  # Number of models to train per combination
             #directory='my_dir', #Where it saves all the trials
@@ -199,7 +206,7 @@ class StockPredictor():
         model = Sequential()
         model.add(LSTM(units=self.Units, return_sequences=False, input_shape=(X_train.shape[1], inputs)))
         model.add(Dropout(self.Dropout))
-        model.add(Dense(units=1))
+        model.add(Dense(self.InputLayer[1]))
         model.compile(optimizer='adam', loss='mean_squared_error')
 
         # Train the model
@@ -223,7 +230,7 @@ class StockPredictor():
         else:
             self.Testscaler = self.Trainscaler
         for i in range(testData.shape[1]):
-            print(inputMulti[:,i:i+1])
+            # print(inputMulti[:,i:i+1])
             inputMulti[:,i:i+1] = self.Testscaler.fit_transform(inputMulti[:,i:i+1])  # Scale the data
         inputMulti.shape  # Shape: (length, 4)
 
@@ -239,6 +246,7 @@ class StockPredictor():
 
         # Convert to NumPy array and reshape
         X_test = np.array(X_test)  # Convert to a NumPy array
+        y_test = np.array(y_test)
         print("X_test shape:", X_test.shape)  # Expected shape: (192, 60, 4)
         print("y_test_multi shape:", y_test.shape)  # Expected shape: (192, 4)
 
@@ -268,37 +276,37 @@ class StockPredictor():
         # plt.legend()
         # plt.show()
 
-        for i in range(len(y_test)):
-            print(f"Y Test: {y_test[i]}, predicted: {predicted_price[i]}")
+        # for i in range(len(y_test)):
+        #     print(f"Y Test: {y_test[i]}, predicted: {predicted_price[i]}")
 
         self.accuracy = self.calculate_accuracy()
 
-def main():
-    stock = StockPredictor("Google")
-    stock.readData("./Google_train_data.csv", "./Google_test_data.csv")
-   
-    X_train, y_train = stock.processTrain(stock.TrainData.iloc[:,1:5].values)
-    print(X_train)
-    if (stock.Retune):
-        stock.hyperParameterTuning(X_train, y_train, 4)
-    print(stock.BatchSize, stock.Dropout, stock.Units)
-    stock.BatchSize = 16
-    stock.Dropout = 0.3
-    stock.Units = 50
-    stock.defineAndTrainModel(X_train, y_train, inputs=4, epochs=15)
-    print(stock.TestData.iloc[:,1:5])
-    X_test, y_test = stock.processTest(stock.TestData.iloc[:,1:5])
-    print(X_test)
-    print(y_test)
-    stock.predict(X_test, y_test)
-    print(stock.accuracy)
-    plt.plot(stock.y_test, color='red', label=f'Actual {stock.StockName} Stock Price')
-    plt.plot(stock.predicted_price, color='green', label=f'Predicted {stock.StockName} Stock Price')
-    plt.title(f'{stock.StockName} Stock Price Prediction')
-    plt.xlabel('Time')
-    plt.ylabel('Stock price')
-    plt.legend()
-    plt.show()
+    def run(self, train_file, test_file):
 
+        if train_file is not None:
+            self.readData(train_file, test_file)
+            X_train, y_train = self.processTrain(self.TrainData.iloc[:,1:5].values)
+            if not self.SkipTraining or self.Model is None:
+                if (self.Retune):
+                    self.hyperParameterTuning(X_train, y_train, 4)
+                self.defineAndTrainModel(X_train, y_train, inputs=4, epochs=15)
+        # elif test_file is not None:
+        #     self.processTest(test_file)
+        X_test, y_test = self.processTest(self.TestData.iloc[:,1:5])
+        self.plot_method(X_test, y_test)
+        return X_test, y_test
+    
+    def plot_method(self, X_test, y_test):
 
-main()
+        self.predict(X_test, y_test)
+        print(self.accuracy)
+
+        plt.plot(self.y_test, color='red', label=f'Actual {self.StockName} self Price')
+        plt.plot(self.predicted_price, color='green', label=f'Predicted {self.StockName} self Price')
+        plt.title(f'{self.StockName} Stock Price Prediction')
+        plt.xlabel('Time')
+        plt.ylabel('Stock price')
+        plt.legend()
+
+        # plt.show()
+
