@@ -1,11 +1,11 @@
 import requests
-import json
 import pandas as pd
 
 #Data Processing 
 
-KEY = "ZCAWN7H87AEQHGDD"
-SYMBOL = "IBM"
+with open('/Users/matthewosmesfin/Documents/apikey', 'r') as file:
+    KEY = file.read()
+SYMBOL = "AX"
 
 # replace the "demo" apikey below with your own key from https://www.alphavantage.co/support/#api-key
 url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={SYMBOL}&apikey={KEY}'
@@ -24,13 +24,6 @@ Low = []
 Close = []
 Dates = []
 
-
-# for key,value in data["Time Series (Daily)"].items():
-#     print(f"{SYMBOL} Open value for {key} is {value[o]}")
-#     print(f"{SYMBOL} High value for {key} is {value[h]}")
-#     print(f"{SYMBOL} Low value for {key} is {value[l]}")
-#     print(f"{SYMBOL} Close value for {key} is {value[c]}")
-
 for key,value in data["Time Series (Daily)"].items():
     Dates.append(key)
     Open.append(value[o])
@@ -45,5 +38,4 @@ stockdf = pd.DataFrame({
     "Close": Close
 }, index=pd.to_datetime(Dates))
 
-print(len(stockdf))
-
+print(stockdf.head)
