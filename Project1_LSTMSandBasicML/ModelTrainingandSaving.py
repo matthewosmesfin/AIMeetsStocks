@@ -50,11 +50,11 @@ X_train.shape
 def build_model(hp):
     model = Sequential()
     # Tune the number of LSTM units
-    units = hp.Int('units', min_value=50, max_value=300, step=50)
+    units = hp.Int('units', min_value=50, max_value=600, step=50)
     model.add(LSTM(units, input_shape=(X_train.shape[1], X_train.shape[2]), return_sequences=False))
-    batch_sizes = hp.Choice('batch_size', [16, 32, 64, 128, 264])
+    batch_sizes = hp.Choice('batch_size', [16, 32, 64, 128, 264, 528])
     # Tune the dropout rate
-    dropout_rate = hp.Float('dropout_rate', min_value=0.1, max_value=0.6, step=0.1)
+    dropout_rate = hp.Float('dropout_rate', min_value=0.1, max_value=0.8, step=0.05)
     model.add(Dropout(dropout_rate))
     model.add(Dense(units=1))
     model.compile(
@@ -68,7 +68,7 @@ def build_model(hp):
 tuner = keras_tuner.RandomSearch(
     build_model,
     objective='val_mean_absolute_error',
-    max_trials=20,  # Number of different hyperparameter combinations to try
+    max_trials=80,  # Number of different hyperparameter combinations to try
     executions_per_trial=1,  # Number of models to train per combination
     #directory='my_dir', #Where it saves all the trials
     #project_name='lstm_tuning'
@@ -78,7 +78,7 @@ tuner = keras_tuner.RandomSearch(
 tuner.search(
     X_train,
     y_train,
-    epochs=10, #use less epochs for training to make it faster
+    epochs=60, #use less epochs for training to make it faster
     validation_data=(X_val, y_val))
 
 # Retrieve the best hyperparameters
@@ -104,7 +104,7 @@ def defineAndTrainModel(X_train, y_train, epochs = 60, inputs = 4): #hyperparame
     model.compile(optimizer='adam', loss='mean_squared_error')
 
     # Train the model
-    model.fit(X_train, y_train, epochs = 60, batch_size=batch_size, verbose=2)
+    model.fit(X_train, y_train, epochs = 100, batch_size=batch_size, verbose=2)
 
     return model
 
